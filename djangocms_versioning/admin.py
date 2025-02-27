@@ -952,19 +952,23 @@ class VersionAdmin(ChangeListActionsMixin, admin.ModelAdmin, metaclass=MediaDefi
             affected_groups = {}
             for version in queryset:
                 versionable = versionables.for_content(version.content)
-                key = (version.content_type_id, versionable.for_content_grouping_values(version.content))
-                if key not in affected_groups:
-                    affected_groups[key] = True
+                content_type_id = version.content_type_id
+                content_obj_ids = [
+                    obj.pk for obj in versionable.for_content_grouping_values(version.content)
+                ]
+                if content_type_id not in affected_groups:
+                    affected_groups[content_type_id] = set()
+                affected_groups[content_type_id].update(content_obj_ids)
 
             # Delete the content objects
             queryset = self.get_content_queryset(queryset)
             response = delete_selected(self, request, queryset)
 
             # Reset version numbers for remaining versions in affected groups
-            for content_type_id, content_objects in affected_groups.items():
+            for content_type_id, content_ids in affected_groups.items():
                 remaining = Version.objects.filter(
                     content_type_id=content_type_id,
-                    object_id__in=content_objects
+                    object_id__in=content_ids
                 ).order_by('created')
                 for index, version in enumerate(remaining, start=1):
                     version.number = str(index)
