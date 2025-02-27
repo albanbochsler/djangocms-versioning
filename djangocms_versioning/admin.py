@@ -935,7 +935,7 @@ class VersionAdmin(ChangeListActionsMixin, admin.ModelAdmin, metaclass=MediaDefi
     )
     def delete_selected(self, request, queryset):
         """
-        Redirects to a delete versions view based on a users choice
+        Deletes selected versions and resets version numbers of remaining versions
         """
         # Do not allow deleting single version objects. Use discard instead.
         forbidden = queryset.filter(state__in=(PUBLISHED, DRAFT))
@@ -948,8 +948,29 @@ class VersionAdmin(ChangeListActionsMixin, admin.ModelAdmin, metaclass=MediaDefi
             return None
 
         if request.POST.get("post"):
-            # When the user confirms, delete the content objects
+            # Get all affected content types and their version groups before deletion
+            affected_groups = {}
+            for version in queryset:
+                versionable = versionables.for_content(version.content)
+                key = (version.content_type_id, versionable.for_content_grouping_values(version.content))
+                if key not in affected_groups:
+                    affected_groups[key] = True
+
+            # Delete the content objects
             queryset = self.get_content_queryset(queryset)
+            response = delete_selected(self, request, queryset)
+
+            # Reset version numbers for remaining versions in affected groups
+            for content_type_id, content_objects in affected_groups.items():
+                remaining = Version.objects.filter(
+                    content_type_id=content_type_id,
+                    object_id__in=content_objects
+                ).order_by('created')
+                for index, version in enumerate(remaining, start=1):
+                    version.number = str(index)
+                    version.save(update_fields=['number'])
+
+            return response
         return delete_selected(self, request, queryset)
 
     def get_deleted_objects(self, objs, request):
